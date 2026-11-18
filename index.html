@@ -31,6 +31,9 @@ h1{font-size:28px;font-weight:800;letter-spacing:-.5px;margin:6px 4px 16px}
 .acts{display:flex;gap:6px}
 .ck{width:36px;height:36px;border-radius:50%;border:2px solid var(--mute);background:rgba(255,255,255,.6);color:#fff;font-size:19px;font-weight:800;padding:0;flex:none;line-height:1}
 .ck:disabled{opacity:.35}
+.nf label{font-size:11px;font-weight:700;color:var(--mute);margin-top:8px}
+.nf select,.nf input[type=text]{width:100%;font-size:16px;font-family:inherit;padding:11px 12px;border-radius:14px;border:1px solid rgba(0,0,0,.12);background:rgba(255,255,255,.8);color:var(--ink)}
+.nf input[type=checkbox]{width:26px;height:26px;accent-color:#2c2c2e}
 .mh{display:flex;justify-content:space-between;align-items:center;cursor:pointer;margin-top:14px}
 .sec{font-size:12px;font-weight:800;color:var(--mute);text-transform:uppercase;letter-spacing:.7px;margin:20px 6px 8px}
 .ck.on{background:var(--gain);border-color:var(--gain)}
@@ -97,7 +100,7 @@ button{font-family:inherit;transition:transform .15s,background .15s}button:acti
 <script>
 // Lipește aici URL-ul Firebase Realtime Database (fără / la final)
 const DB_URL = "https://minicrm-b3a88-default-rtdb.europe-west1.firebasedatabase.app";
-let D = {people: [], rem: []}, tab = "p", stip = "p", OP = {};
+let D = {people: [], rem: [], news: null}, tab = "p", stip = "p", OP = {};
 const $ = s => document.querySelector(s);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 const esc = s => String(s || "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
@@ -105,14 +108,15 @@ const ini = n => n.trim().split(/\s+/).slice(0, 2).map(w => w[0]).join("").toUpp
 const IC = {
   p: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
   b: '<path d="M20 12v9H4v-9M2 7h20v5H2zM12 21V7M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7z"/>',
+  n: '<path d="M4 4h13v16H5a1 1 0 0 1-1-1zM17 8h3v11a1 1 0 0 1-1 1M8 8h5M8 12h5M8 16h5"/>',
   r: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/>'
 };
 async function load() {
-  try { const l = JSON.parse(localStorage.crm || "null"); if (l) D = {people: l.people || [], rem: l.rem || []}; } catch (e) {}
+  try { const l = JSON.parse(localStorage.crm || "null"); if (l) D = {people: l.people || [], rem: l.rem || [], news: l.news}; } catch (e) {}
   if (DB_URL) {
     try {
       const j = await (await fetch(DB_URL + "/crm.json")).json();
-      if (j) D = {people: j.people || [], rem: j.rem || []};
+      if (j) D = {people: j.people || [], rem: j.rem || [], news: j.news};
       else if (D.people.length || D.rem.length) { await save(); return; }
     } catch (e) {}
   }
@@ -138,6 +142,7 @@ const MN = ["Ianuarie", "Februarie", "Martie", "Aprilie", "Mai", "Iunie", "Iulie
 const mLabel = k => MN[Number(k.slice(5)) - 1] + " " + k.slice(0, 4);
 const arr = v => Array.isArray(v) ? v.filter(x => x != null) : Object.values(v || {});
 function norm() {
+  D.news = Object.assign({on: false, hour: 8, topics: ""}, D.news || {}); D.news.hour = Number(D.news.hour) || 8; D.news.on = !!D.news.on;
   D.rem.forEach(r => {
     r.days = arr(r.days).map(Number); if (!r.days.length && r.day) r.days = [Number(r.day)]; delete r.day;
     if (typeof r.done === "string") { const k = r.done; r.done = {}; r.done[k] = [...r.days]; }
@@ -152,12 +157,14 @@ function tg(id, mk, d) {
   save();
 }
 function tm(k) { const o = OP[k] === undefined ? k === monthKey() : OP[k]; OP[k] = !o; render(); }
+function ns() { D.news = {on: $("#non").checked, hour: Number($("#nh").value), topics: $("#ntp").value.trim()}; save(); }
 function navTo(k) { tab = k; render(); }
 function render() {
   norm();
-  $("#ti").textContent = {p: "Persoane", b: "Zile de naștere", r: "Memento-uri"}[tab];
-  $("#nav").innerHTML = [["p", "Persoane"], ["b", "Zile"], ["r", "Memento"]]
+  $("#ti").textContent = {p: "Persoane", b: "Zile de naștere", r: "Memento-uri", n: "Știri"}[tab];
+  $("#nav").innerHTML = [["p", "Persoane"], ["b", "Zile"], ["r", "Memento"], ["n", "Știri"]]
     .map(([k, l]) => `<button class="${tab === k ? "on" : ""}" onclick="navTo('${k}')"><svg viewBox="0 0 24 24">${IC[k]}</svg>${l}</button>`).join("");
+  $("#fab").style.display = tab === "n" ? "none" : "";
   let h = "";
   if (tab === "p") {
     h = [...D.people].sort((a, b) => a.name.localeCompare(b.name)).map(p => `<div class="card"><div class="av">${esc(ini(p.name))}</div>
@@ -172,6 +179,13 @@ function render() {
       h += l.slice(1).map(({p, days, age}) => `<div class="card"><div class="av">${esc(ini(p.name))}</div>
         <div class="b"><b>${esc(p.name)}</b><small>împlinește ${age} ani</small></div><span class="pill">${when(days)}</span><button class="x" onclick="edit('people','${p.id}')">✎</button></div>`).join("");
     }
+  } else if (tab === "n") {
+    const nw = D.news, hrs = Array.from({length: 14}, (_, i) => i + 8);
+    h = `<div class="card nf" style="flex-direction:column;align-items:stretch;gap:4px">
+      <div style="display:flex;justify-content:space-between;align-items:center"><b>Rezumat zilnic de știri</b><input type="checkbox" id="non" ${nw.on ? "checked" : ""} onchange="ns()"></div>
+      <label>Ora notificării</label><select id="nh" onchange="ns()">${hrs.map(x => `<option value="${x}" ${x === nw.hour ? "selected" : ""}>${x}:00</option>`).join("")}</select>
+      <label>Subiecte, separate prin virgulă (gol = principalele știri)</label><input type="text" id="ntp" value="${esc(nw.topics)}" placeholder="Ex: tehnologie, bursă, fotbal" onchange="ns()">
+      <small style="color:var(--mute);margin-top:6px">Primești zilnic o notificare cu știrile, la ora aleasă.</small></div>`;
   } else {
     const cur = monthKey(), td = new Date().getDate(), ml = [];
     for (let o = 0; o < 40; o++) { const k = monthKey(o); if (o >= 12 && k > "2027-12") break; ml.push(k); }
