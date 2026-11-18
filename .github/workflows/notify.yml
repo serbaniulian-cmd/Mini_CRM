@@ -1,0 +1,49 @@
+name: Notificari
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trimite notificari
+        env:
+          DB_URL: ${{ secrets.DB_URL }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          python3 - <<'EOF'
+          import os, json, datetime as d
+          import urllib.request as u
+          from zoneinfo import ZoneInfo
+          t = d.datetime.now(ZoneInfo("Europe/Bucharest")).date()
+          j = json.load(u.urlopen(os.environ["DB_URL"] + "/crm.json")) or {}
+          m = []
+          for p in j.get("people", []):
+              b = p.get("bd")
+              if not b:
+                  continue
+              _, mo, da = map(int, b.split("-"))
+              for k, w in ((0, "azi"), (1, "mâine")):
+                  x = t + d.timedelta(days=k)
+                  if (x.month, x.day) == (mo, da):
+                      m.append(f"🎂 {p['name']} are ziua de naștere {w}")
+          for r in j.get("rem", []):
+              if int(r["day"]) == t.day:
+                  m.append("⏰ " + r["text"])
+          if m:
+              req = u.Request("https://ntfy.sh/" + os.environ["NTFY_TOPIC"], "\n".join(m).encode("utf-8"), {"Title": "Mini-CRM"})
+              u.urlopen(req)
+          print(m or "nimic de trimis")
+          EOF
+      - name: Tine repo-ul activ
+        run: |
+          if [ "$(date +%d)" = "01" ]; then
+            git config user.name "crm-bot"
+            git config user.email "crm-bot@users.noreply.github.com"
+            git commit --allow-empty -m "keepalive"
+            git push
+          fi
