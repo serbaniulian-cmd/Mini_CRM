@@ -38,8 +38,19 @@ jobs:
                       if (x.month, x.day) == (mo, da):
                           m.append(f"🎂 {p['name']} are ziua de naștere {w}")
           for r in j.get("rem", []):
-              if int(r["day"]) <= t.day and r.get("done") != mk:
-                  m.append("⏰ " + r["text"] + " (bifează în aplicație)")
+              ds = r.get("days") or ([r["day"]] if r.get("day") else [])
+              if isinstance(ds, dict):
+                  ds = list(ds.values())
+              dn = r.get("done") or {}
+              if isinstance(dn, str):
+                  dn = {dn: ds}
+              md = dn.get(mk) or []
+              if isinstance(md, dict):
+                  md = list(md.values())
+              md = [int(x) for x in md if x is not None]
+              for day in ds:
+                  if day is not None and int(day) <= t.day and int(day) not in md:
+                      m.append(f"⏰ {r['text']} (ziua {day}, bifează în aplicație)")
           if m:
               req = u.Request("https://ntfy.sh/" + os.environ["NTFY_TOPIC"], "\n".join(m).encode("utf-8"), {"Title": "Mini-CRM"})
               u.urlopen(req)
