@@ -31,6 +31,7 @@ h1{font-size:28px;font-weight:800;letter-spacing:-.5px;margin:6px 4px 16px}
 .acts{display:flex;gap:6px}
 .ck{width:36px;height:36px;border-radius:50%;border:2px solid var(--mute);background:rgba(255,255,255,.6);color:#fff;font-size:19px;font-weight:800;padding:0;flex:none;line-height:1}
 .ck:disabled{opacity:.35}
+.mh{display:flex;justify-content:space-between;align-items:center;cursor:pointer;margin-top:14px}
 .sec{font-size:12px;font-weight:800;color:var(--mute);text-transform:uppercase;letter-spacing:.7px;margin:20px 6px 8px}
 .ck.on{background:var(--gain);border-color:var(--gain)}
 .card.done{opacity:.6}.card.done .b b{text-decoration:line-through}
@@ -96,7 +97,7 @@ button{font-family:inherit;transition:transform .15s,background .15s}button:acti
 <script>
 // Lipește aici URL-ul Firebase Realtime Database (fără / la final)
 const DB_URL = "https://minicrm-b3a88-default-rtdb.europe-west1.firebasedatabase.app";
-let D = {people: [], rem: []}, tab = "p", stip = "p";
+let D = {people: [], rem: []}, tab = "p", stip = "p", OP = {};
 const $ = s => document.querySelector(s);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 const esc = s => String(s || "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
@@ -140,7 +141,7 @@ function norm() {
   D.rem.forEach(r => {
     r.days = arr(r.days).map(Number); if (!r.days.length && r.day) r.days = [Number(r.day)]; delete r.day;
     if (typeof r.done === "string") { const k = r.done; r.done = {}; r.done[k] = [...r.days]; }
-    r.done = r.done || {}; Object.keys(r.done).forEach(k => r.done[k] = arr(r.done[k]).map(Number));
+    r.done = r.done || {}; Object.keys(r.done).forEach(k => { if (k < monthKey()) delete r.done[k]; else r.done[k] = arr(r.done[k]).map(Number); });
   });
 }
 function tg(id, mk, d) {
@@ -150,6 +151,7 @@ function tg(id, mk, d) {
   if (a.length) o.done[mk] = a; else delete o.done[mk];
   save();
 }
+function tm(k) { const o = OP[k] === undefined ? k === monthKey() : OP[k]; OP[k] = !o; render(); }
 function navTo(k) { tab = k; render(); }
 function render() {
   norm();
@@ -171,15 +173,16 @@ function render() {
         <div class="b"><b>${esc(p.name)}</b><small>împlinește ${age} ani</small></div><span class="pill">${when(days)}</span><button class="x" onclick="edit('people','${p.id}')">✎</button></div>`).join("");
     }
   } else {
-    const cur = monthKey(), nx = monthKey(1), td = new Date().getDate(), past = new Set();
-    D.rem.forEach(r => Object.keys(r.done).forEach(k => { if (k < cur) past.add(k); }));
+    const cur = monthKey(), td = new Date().getDate(), ml = [];
+    for (let o = 0; o < 40; o++) { const k = monthKey(o); if (o >= 12 && k > "2027-12") break; ml.push(k); }
     h = '<div class="sec">Setate de mine</div>' + [...D.rem].sort((a, b) => a.days[0] - b.days[0]).map(r => `<div class="card"><div class="av">${esc(ini(r.text))}</div>
       <div class="b"><b>${esc(r.text)}</b><small>în zilele ${r.days.join(", ")} ale fiecărei luni</small></div>${acts('rem', r.id)}</div>`).join("");
-    [cur, nx, ...[...past].sort().reverse()].forEach(mk => {
+    if (D.rem.length) ml.forEach(mk => {
       const it = []; D.rem.forEach(r => r.days.forEach(d => it.push({r, d}))); it.sort((a, b) => a.d - b.d);
-      if (!it.length) return;
-      h += `<div class="sec">${mLabel(mk)}</div>` + it.map(({r, d}) => { const dn = (r.done[mk] || []).includes(d), ro = mk > cur;
-        const st = dn ? "făcut" : mk < cur ? "nebifat" : mk > cur ? "urmează" : td >= d ? "scadent · notificări din oră în oră" : "urmează";
+      const nd = it.filter(({r, d}) => (r.done[mk] || []).includes(d)).length, op = OP[mk] === undefined ? mk === cur : OP[mk];
+      h += `<div class="sec mh" onclick="tm('${mk}')"><span>${mLabel(mk)}</span><span>${nd}/${it.length} ${op ? "▾" : "▸"}</span></div>`;
+      if (op) h += it.map(({r, d}) => { const dn = (r.done[mk] || []).includes(d), ro = mk > cur;
+        const st = dn ? "făcut" : mk > cur ? "urmează" : td >= d ? "scadent · notificări din oră în oră" : "urmează";
         return `<div class="card${dn ? " done" : ""}"><button class="ck${dn ? " on" : ""}" ${ro ? "disabled" : ""} onclick="tg('${r.id}','${mk}',${d})" aria-label="Bifează">${dn ? "✓" : ""}</button>
         <div class="b"><b>${esc(r.text)}</b><small>ziua ${d} · ${st}</small></div></div>`; }).join("");
     });
