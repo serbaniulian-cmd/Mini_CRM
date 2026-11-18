@@ -29,6 +29,9 @@ h1{font-size:28px;font-weight:800;letter-spacing:-.5px;margin:6px 4px 16px}
 .b{flex:1;min-width:0;overflow-wrap:anywhere}.b b{display:block;font-weight:800}.b small{display:block;color:var(--mute);font-size:13px}.b a{color:var(--ink)}
 .x{border:0;background:rgba(255,255,255,.6);color:var(--mute);border:1px solid #fff;width:34px;height:34px;border-radius:50%;font-size:18px;padding:0}
 .acts{display:flex;gap:6px}
+.ck{width:36px;height:36px;border-radius:50%;border:2px solid var(--mute);background:rgba(255,255,255,.6);color:#fff;font-size:19px;font-weight:800;padding:0;flex:none;line-height:1}
+.ck.on{background:var(--gain);border-color:var(--gain)}
+.card.done{opacity:.6}.card.done .b b{text-decoration:line-through}
 .pill{font-size:12px;font-weight:800;padding:6px 10px;border-radius:99px;background:rgba(255,255,255,.6);border:1px solid #fff;white-space:nowrap}
 .empty{text-align:center;color:var(--mute);padding:50px 0;font-weight:700}
 .gl{background:linear-gradient(135deg,rgba(255,255,255,.62),rgba(255,255,255,.2));-webkit-backdrop-filter:blur(40px) saturate(180%);backdrop-filter:blur(40px) saturate(180%);border:1px solid #fff;box-shadow:0 18px 40px -10px rgba(0,0,0,.35),inset 0 1px 1px #fff}
@@ -126,6 +129,8 @@ function nextBday(b) {
   return {days: Math.round((x - t) / 864e5), age: x.getFullYear() - y};
 }
 const when = d => d === 0 ? "azi 🎂" : d === 1 ? "mâine" : "în " + d + " zile";
+const monthKey = () => { const n = new Date(); return n.getFullYear() + "-" + String(n.getMonth() + 1).padStart(2, "0"); };
+function tg(id) { const o = D.rem.find(x => x.id === id); if (!o) return; if (o.done === monthKey()) delete o.done; else o.done = monthKey(); save(); }
 function navTo(k) { tab = k; render(); }
 function render() {
   $("#ti").textContent = {p: "Persoane", b: "Zile de naștere", r: "Memento-uri"}[tab];
@@ -146,8 +151,10 @@ function render() {
         <div class="b"><b>${esc(p.name)}</b><small>împlinește ${age} ani</small></div><span class="pill">${when(days)}</span><button class="x" onclick="edit('people','${p.id}')">✎</button></div>`).join("");
     }
   } else {
-    h = [...D.rem].sort((a, b) => a.day - b.day).map(r => `<div class="card"><div class="av">${r.day}</div>
-      <div class="b"><b>${esc(r.text)}</b><small>în fiecare lună</small></div>${acts('rem',r.id)}</div>`).join("");
+    const mk = monthKey(), td = new Date().getDate();
+    h = [...D.rem].sort((a, b) => a.day - b.day).map(r => { const dn = r.done === mk;
+      return `<div class="card${dn ? " done" : ""}"><button class="ck${dn ? " on" : ""}" onclick="tg('${r.id}')" aria-label="Bifează">${dn ? "✓" : ""}</button>
+      <div class="b"><b>${esc(r.text)}</b><small>${dn ? "Făcut luna aceasta · reapare luna viitoare" : td >= r.day ? "Scadent din ziua " + r.day + " · notificări din oră în oră" : "Urmează pe " + r.day + " a lunii"}</small></div>${acts('rem',r.id)}</div>`; }).join("");
   }
   $("#v").innerHTML = h || '<div class="empty">Nimic aici încă.<br>Apasă + ca să adaugi.</div>';
 }
