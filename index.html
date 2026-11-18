@@ -28,6 +28,7 @@ h1{font-size:28px;font-weight:800;letter-spacing:-.5px;margin:6px 4px 16px}
 .av{width:44px;height:44px;border-radius:50%;flex:none;display:grid;place-items:center;font-weight:800;color:#fff;background:linear-gradient(145deg,var(--ui1),var(--ui2));box-shadow:0 8px 18px -6px rgba(0,0,0,.4)}
 .b{flex:1;min-width:0;overflow-wrap:anywhere}.b b{display:block;font-weight:800}.b small{display:block;color:var(--mute);font-size:13px}.b a{color:var(--ink)}
 .x{border:0;background:rgba(255,255,255,.6);color:var(--mute);border:1px solid #fff;width:34px;height:34px;border-radius:50%;font-size:18px;padding:0}
+.acts{display:flex;gap:6px}
 .pill{font-size:12px;font-weight:800;padding:6px 10px;border-radius:99px;background:rgba(255,255,255,.6);border:1px solid #fff;white-space:nowrap}
 .empty{text-align:center;color:var(--mute);padding:50px 0;font-weight:700}
 .gl{background:linear-gradient(135deg,rgba(255,255,255,.62),rgba(255,255,255,.2));-webkit-backdrop-filter:blur(40px) saturate(180%);backdrop-filter:blur(40px) saturate(180%);border:1px solid #fff;box-shadow:0 18px 40px -10px rgba(0,0,0,.35),inset 0 1px 1px #fff}
@@ -101,14 +102,16 @@ const IC = {
   r: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/>'
 };
 async function load() {
-  try { D = JSON.parse(localStorage.crm || "null") || D; } catch (e) {}
+  try { const l = JSON.parse(localStorage.crm || "null"); if (l) D = {people: l.people || [], rem: l.rem || []}; } catch (e) {}
   if (DB_URL) {
     try {
       const j = await (await fetch(DB_URL + "/crm.json")).json();
       if (j) D = {people: j.people || [], rem: j.rem || []};
+      else if (D.people.length || D.rem.length) { await save(); return; }
     } catch (e) {}
   }
   render();
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
 }
 async function save() {
   try { localStorage.crm = JSON.stringify(D); } catch (e) {}
@@ -132,38 +135,47 @@ function render() {
   if (tab === "p") {
     h = [...D.people].sort((a, b) => a.name.localeCompare(b.name)).map(p => `<div class="card"><div class="av">${esc(ini(p.name))}</div>
       <div class="b"><b>${esc(p.name)}</b><small>${esc(p.rel)}${p.nt ? " · " + esc(p.nt) : ""}</small>${p.ph ? `<small><a href="tel:${esc(p.ph)}">${esc(p.ph)}</a></small>` : ""}</div>
-      <button class="x" onclick="del('people','${p.id}')">×</button></div>`).join("");
+      ${acts('people',p.id)}</div>`).join("");
   } else if (tab === "b") {
     const l = D.people.filter(p => p.bd).map(p => ({p, ...nextBday(p.bd)})).sort((a, b) => a.days - b.days);
     if (l.length) {
       const f = l[0], off = (163.4 * Math.min(f.days, 365) / 365).toFixed(1);
       h = `<div class="card" style="padding:16px"><div class="inel"><svg viewBox="0 0 64 64"><circle class="bg" cx="32" cy="32" r="26"/><circle class="arc" cx="32" cy="32" r="26" style="stroke-dashoffset:${off}"/></svg><b>${f.days}<small>zile</small></b></div>
-        <div class="b"><small>Următoarea</small><b style="font-size:19px">${esc(f.p.name)}</b><small>împlinește ${f.age} ani · ${when(f.days)}</small></div></div>`;
+        <div class="b"><small>Următoarea</small><b style="font-size:19px">${esc(f.p.name)}</b><small>împlinește ${f.age} ani · ${when(f.days)}</small></div><button class="x" onclick="edit('people','${f.p.id}')">✎</button></div>`;
       h += l.slice(1).map(({p, days, age}) => `<div class="card"><div class="av">${esc(ini(p.name))}</div>
-        <div class="b"><b>${esc(p.name)}</b><small>împlinește ${age} ani</small></div><span class="pill">${when(days)}</span></div>`).join("");
+        <div class="b"><b>${esc(p.name)}</b><small>împlinește ${age} ani</small></div><span class="pill">${when(days)}</span><button class="x" onclick="edit('people','${p.id}')">✎</button></div>`).join("");
     }
   } else {
     h = [...D.rem].sort((a, b) => a.day - b.day).map(r => `<div class="card"><div class="av">${r.day}</div>
-      <div class="b"><b>${esc(r.text)}</b><small>în fiecare lună</small></div><button class="x" onclick="del('rem','${r.id}')">×</button></div>`).join("");
+      <div class="b"><b>${esc(r.text)}</b><small>în fiecare lună</small></div>${acts('rem',r.id)}</div>`).join("");
   }
   $("#v").innerHTML = h || '<div class="empty">Nimic aici încă.<br>Apasă + ca să adaugi.</div>';
 }
+let eid = null;
+function acts(k, id) { return `<div class="acts"><button class="x" onclick="edit('${k}','${id}')">✎</button><button class="x" onclick="del('${k}','${id}')">×</button></div>`; }
 function shTip(t) {
   stip = t;
   $("#shP").classList.toggle("on", t === "p"); $("#shR").classList.toggle("on", t === "r");
   $("#fP").style.display = t === "p" ? "" : "none"; $("#fR").style.display = t === "r" ? "" : "none";
 }
-function shDeschide() { shTip(tab === "r" ? "r" : "p"); $("#shW").classList.add("open"); }
-function shInchide() { $("#shW").classList.remove("open"); }
+function clr() { ["n", "ph", "bd", "nt", "rt", "rd"].forEach(i => $("#" + i).value = ""); $("#rl").selectedIndex = 0; }
+function shDeschide() { eid = null; clr(); $(".seg").style.display = ""; shTip(tab === "r" ? "r" : "p"); $("#shW").classList.add("open"); }
+function edit(k, id) {
+  const o = D[k].find(x => x.id === id); if (!o) return;
+  eid = id; clr(); $(".seg").style.display = "none";
+  if (k === "people") { shTip("p"); $("#n").value = o.name; $("#rl").value = o.rel; $("#ph").value = o.ph || ""; $("#bd").value = o.bd || ""; $("#nt").value = o.nt || ""; }
+  else { shTip("r"); $("#rt").value = o.text; $("#rd").value = o.day; }
+  $("#shW").classList.add("open");
+}
+function shInchide() { $("#shW").classList.remove("open"); eid = null; }
 function shSalveaza() {
   if (stip === "p") {
     const n = $("#n").value.trim(); if (!n) return;
-    D.people.push({id: uid(), name: n, rel: $("#rl").value, ph: $("#ph").value.trim(), bd: $("#bd").value, nt: $("#nt").value.trim()});
-    ["n", "ph", "bd", "nt"].forEach(i => $("#" + i).value = "");
+    const v = {name: n, rel: $("#rl").value, ph: $("#ph").value.trim(), bd: $("#bd").value, nt: $("#nt").value.trim()};
+    if (eid) Object.assign(D.people.find(x => x.id === eid), v); else D.people.push({id: uid(), ...v});
   } else {
     const t = $("#rt").value.trim(), d = Number($("#rd").value); if (!t || d < 1 || d > 28) return;
-    D.rem.push({id: uid(), text: t, day: d});
-    $("#rt").value = ""; $("#rd").value = "";
+    if (eid) Object.assign(D.rem.find(x => x.id === eid), {text: t, day: d}); else D.rem.push({id: uid(), text: t, day: d});
   }
   shInchide(); save();
 }
