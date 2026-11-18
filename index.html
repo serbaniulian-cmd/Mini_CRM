@@ -178,12 +178,13 @@ function render() {
     [cur, nx, ...[...past].sort().reverse()].forEach(mk => {
       const it = []; D.rem.forEach(r => r.days.forEach(d => it.push({r, d}))); it.sort((a, b) => a.d - b.d);
       if (!it.length) return;
-      h += `<div class="sec">${mLabel(mk)}</div>` + it.map(({r, d}) => { const dn = r.done[mk].includes(d), ro = mk > cur;
+      h += `<div class="sec">${mLabel(mk)}</div>` + it.map(({r, d}) => { const dn = (r.done[mk] || []).includes(d), ro = mk > cur;
         const st = dn ? "făcut" : mk < cur ? "nebifat" : mk > cur ? "urmează" : td >= d ? "scadent · notificări din oră în oră" : "urmează";
         return `<div class="card${dn ? " done" : ""}"><button class="ck${dn ? " on" : ""}" ${ro ? "disabled" : ""} onclick="tg('${r.id}','${mk}',${d})" aria-label="Bifează">${dn ? "✓" : ""}</button>
         <div class="b"><b>${esc(r.text)}</b><small>ziua ${d} · ${st}</small></div></div>`; }).join("");
     });
   }
+  if (tab === "r" && !D.rem.length) h = "";
   $("#v").innerHTML = h || '<div class="empty">Nimic aici încă.<br>Apasă + ca să adaugi.</div>';
 }
 let eid = null;
