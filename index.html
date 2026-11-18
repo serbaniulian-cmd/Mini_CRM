@@ -30,6 +30,8 @@ h1{font-size:28px;font-weight:800;letter-spacing:-.5px;margin:6px 4px 16px}
 .x{border:0;background:rgba(255,255,255,.6);color:var(--mute);border:1px solid #fff;width:34px;height:34px;border-radius:50%;font-size:18px;padding:0}
 .acts{display:flex;gap:6px}
 .ck{width:36px;height:36px;border-radius:50%;border:2px solid var(--mute);background:rgba(255,255,255,.6);color:#fff;font-size:19px;font-weight:800;padding:0;flex:none;line-height:1}
+.ck:disabled{opacity:.35}
+.sec{font-size:12px;font-weight:800;color:var(--mute);text-transform:uppercase;letter-spacing:.7px;margin:20px 6px 8px}
 .ck.on{background:var(--gain);border-color:var(--gain)}
 .card.done{opacity:.6}.card.done .b b{text-decoration:line-through}
 .pill{font-size:12px;font-weight:800;padding:6px 10px;border-radius:99px;background:rgba(255,255,255,.6);border:1px solid #fff;white-space:nowrap}
@@ -86,8 +88,8 @@ button{font-family:inherit;transition:transform .15s,background .15s}button:acti
     <label>Notițe</label><input id="nt" placeholder="Opțional">
   </div>
   <div id="fR" style="display:none">
-    <label>Text</label><input id="rt" placeholder="Ex: Dă indexul la facturi">
-    <label>În ce zi a lunii (1-28)</label><input id="rd" type="number" inputmode="numeric" min="1" max="28" placeholder="Ex: 20">
+    <label>Text</label><input id="rt" placeholder="Ex: Apă, Gaz, Curent">
+    <label>Zilele lunii (1-28), separate prin virgulă</label><input id="rd" type="text" placeholder="Ex: 5, 20">
   </div>
   <button class="ok" onclick="shSalveaza()">Salvează</button>
 </div></div>
@@ -117,6 +119,7 @@ async function load() {
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
 }
 async function save() {
+  norm();
   try { localStorage.crm = JSON.stringify(D); } catch (e) {}
   if (DB_URL) { try { await fetch(DB_URL + "/crm.json", {method: "PUT", body: JSON.stringify(D)}); } catch (e) {} }
   render();
@@ -129,10 +132,27 @@ function nextBday(b) {
   return {days: Math.round((x - t) / 864e5), age: x.getFullYear() - y};
 }
 const when = d => d === 0 ? "azi 🎂" : d === 1 ? "mâine" : "în " + d + " zile";
-const monthKey = () => { const n = new Date(); return n.getFullYear() + "-" + String(n.getMonth() + 1).padStart(2, "0"); };
-function tg(id) { const o = D.rem.find(x => x.id === id); if (!o) return; if (o.done === monthKey()) delete o.done; else o.done = monthKey(); save(); }
+const monthKey = (o = 0) => { const n = new Date(), x = new Date(n.getFullYear(), n.getMonth() + o, 1); return x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0"); };
+const MN = ["Ianuarie", "Februarie", "Martie", "Aprilie", "Mai", "Iunie", "Iulie", "August", "Septembrie", "Octombrie", "Noiembrie", "Decembrie"];
+const mLabel = k => MN[Number(k.slice(5)) - 1] + " " + k.slice(0, 4);
+const arr = v => Array.isArray(v) ? v.filter(x => x != null) : Object.values(v || {});
+function norm() {
+  D.rem.forEach(r => {
+    r.days = arr(r.days).map(Number); if (!r.days.length && r.day) r.days = [Number(r.day)]; delete r.day;
+    if (typeof r.done === "string") { const k = r.done; r.done = {}; r.done[k] = [...r.days]; }
+    r.done = r.done || {}; Object.keys(r.done).forEach(k => r.done[k] = arr(r.done[k]).map(Number));
+  });
+}
+function tg(id, mk, d) {
+  const o = D.rem.find(x => x.id === id); if (!o) return;
+  const a = o.done[mk] || [], i = a.indexOf(d);
+  if (i >= 0) a.splice(i, 1); else a.push(d);
+  if (a.length) o.done[mk] = a; else delete o.done[mk];
+  save();
+}
 function navTo(k) { tab = k; render(); }
 function render() {
+  norm();
   $("#ti").textContent = {p: "Persoane", b: "Zile de naștere", r: "Memento-uri"}[tab];
   $("#nav").innerHTML = [["p", "Persoane"], ["b", "Zile"], ["r", "Memento"]]
     .map(([k, l]) => `<button class="${tab === k ? "on" : ""}" onclick="navTo('${k}')"><svg viewBox="0 0 24 24">${IC[k]}</svg>${l}</button>`).join("");
@@ -151,10 +171,18 @@ function render() {
         <div class="b"><b>${esc(p.name)}</b><small>împlinește ${age} ani</small></div><span class="pill">${when(days)}</span><button class="x" onclick="edit('people','${p.id}')">✎</button></div>`).join("");
     }
   } else {
-    const mk = monthKey(), td = new Date().getDate();
-    h = [...D.rem].sort((a, b) => a.day - b.day).map(r => { const dn = r.done === mk;
-      return `<div class="card${dn ? " done" : ""}"><button class="ck${dn ? " on" : ""}" onclick="tg('${r.id}')" aria-label="Bifează">${dn ? "✓" : ""}</button>
-      <div class="b"><b>${esc(r.text)}</b><small>${dn ? "Făcut luna aceasta · reapare luna viitoare" : td >= r.day ? "Scadent din ziua " + r.day + " · notificări din oră în oră" : "Urmează pe " + r.day + " a lunii"}</small></div>${acts('rem',r.id)}</div>`; }).join("");
+    const cur = monthKey(), nx = monthKey(1), td = new Date().getDate(), past = new Set();
+    D.rem.forEach(r => Object.keys(r.done).forEach(k => { if (k < cur) past.add(k); }));
+    h = '<div class="sec">Setate de mine</div>' + [...D.rem].sort((a, b) => a.days[0] - b.days[0]).map(r => `<div class="card"><div class="av">${esc(ini(r.text))}</div>
+      <div class="b"><b>${esc(r.text)}</b><small>în zilele ${r.days.join(", ")} ale fiecărei luni</small></div>${acts('rem', r.id)}</div>`).join("");
+    [cur, nx, ...[...past].sort().reverse()].forEach(mk => {
+      const it = []; D.rem.forEach(r => r.days.forEach(d => it.push({r, d}))); it.sort((a, b) => a.d - b.d);
+      if (!it.length) return;
+      h += `<div class="sec">${mLabel(mk)}</div>` + it.map(({r, d}) => { const dn = r.done[mk].includes(d), ro = mk > cur;
+        const st = dn ? "făcut" : mk < cur ? "nebifat" : mk > cur ? "urmează" : td >= d ? "scadent · notificări din oră în oră" : "urmează";
+        return `<div class="card${dn ? " done" : ""}"><button class="ck${dn ? " on" : ""}" ${ro ? "disabled" : ""} onclick="tg('${r.id}','${mk}',${d})" aria-label="Bifează">${dn ? "✓" : ""}</button>
+        <div class="b"><b>${esc(r.text)}</b><small>ziua ${d} · ${st}</small></div></div>`; }).join("");
+    });
   }
   $("#v").innerHTML = h || '<div class="empty">Nimic aici încă.<br>Apasă + ca să adaugi.</div>';
 }
@@ -171,7 +199,7 @@ function edit(k, id) {
   const o = D[k].find(x => x.id === id); if (!o) return;
   eid = id; clr(); $(".seg").style.display = "none";
   if (k === "people") { shTip("p"); $("#n").value = o.name; $("#rl").value = o.rel; $("#ph").value = o.ph || ""; $("#bd").value = o.bd || ""; $("#nt").value = o.nt || ""; }
-  else { shTip("r"); $("#rt").value = o.text; $("#rd").value = o.day; }
+  else { shTip("r"); $("#rt").value = o.text; $("#rd").value = o.days.join(", "); }
   $("#shW").classList.add("open");
 }
 function shInchide() { $("#shW").classList.remove("open"); eid = null; }
@@ -181,8 +209,9 @@ function shSalveaza() {
     const v = {name: n, rel: $("#rl").value, ph: $("#ph").value.trim(), bd: $("#bd").value, nt: $("#nt").value.trim()};
     if (eid) Object.assign(D.people.find(x => x.id === eid), v); else D.people.push({id: uid(), ...v});
   } else {
-    const t = $("#rt").value.trim(), d = Number($("#rd").value); if (!t || d < 1 || d > 28) return;
-    if (eid) Object.assign(D.rem.find(x => x.id === eid), {text: t, day: d}); else D.rem.push({id: uid(), text: t, day: d});
+    const t = $("#rt").value.trim(), ds = [...new Set($("#rd").value.split(/[^0-9]+/).filter(Boolean).map(Number))].filter(n => n >= 1 && n <= 28).sort((a, b) => a - b);
+    if (!t || !ds.length) return;
+    if (eid) { const o = D.rem.find(x => x.id === eid); o.text = t; o.days = ds; } else D.rem.push({id: uid(), text: t, days: ds, done: {}});
   }
   shInchide(); save();
 }
