@@ -15,6 +15,7 @@ jobs:
           DB_URL: ${{ secrets.DB_URL }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EVENT: ${{ github.event_name }}
         run: |
           python3 - <<'PY'
           import os, json, datetime as d
@@ -23,7 +24,8 @@ jobs:
           now = d.datetime.now(ZoneInfo("Europe/Bucharest"))
           t = now.date()
           mk = f"{t.year}-{t.month:02d}"
-          if not 8 <= now.hour <= 21:
+          manual = os.environ.get("EVENT") == "workflow_dispatch"
+          if not manual and not 8 <= now.hour <= 21:
               print("in afara intervalului 08-22")
               raise SystemExit
           j = json.load(u.urlopen(os.environ["DB_URL"] + "/crm.json")) or {}
@@ -57,7 +59,7 @@ jobs:
               u.urlopen(req)
           print(m or "nimic de trimis")
           nw = j.get("news") or {}
-          if nw.get("on") and now.hour == int(nw.get("hour", 8)):
+          if manual or (nw.get("on") and now.hour == int(nw.get("hour", 8))):
               import xml.etree.ElementTree as ET
               import urllib.parse as up
               tops = [x.strip() for x in str(nw.get("topics", "")).split(",") if x.strip()][:5] or [""]
