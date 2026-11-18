@@ -100,7 +100,7 @@ button{font-family:inherit;transition:transform .15s,background .15s}button:acti
 <script>
 // Lipește aici URL-ul Firebase Realtime Database (fără / la final)
 const DB_URL = "https://minicrm-b3a88-default-rtdb.europe-west1.firebasedatabase.app";
-let D = {people: [], rem: [], news: null}, tab = "p", stip = "p", OP = {};
+let D = {people: [], rem: [], news: null}, tab = "p", stip = "p", OP = {}, DG = null;
 const $ = s => document.querySelector(s);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 const esc = s => String(s || "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
@@ -116,7 +116,8 @@ async function load() {
   if (DB_URL) {
     try {
       const j = await (await fetch(DB_URL + "/crm.json")).json();
-      if (j) D = {people: j.people || [], rem: j.rem || [], news: j.news};
+      DG = j && j.digest || null;
+      if (j && (j.people || j.rem || j.news)) D = {people: j.people || [], rem: j.rem || [], news: j.news};
       else if (D.people.length || D.rem.length) { await save(); return; }
     } catch (e) {}
   }
@@ -126,7 +127,7 @@ async function load() {
 async function save() {
   norm();
   try { localStorage.crm = JSON.stringify(D); } catch (e) {}
-  if (DB_URL) { try { await fetch(DB_URL + "/crm.json", {method: "PUT", body: JSON.stringify(D)}); } catch (e) {} }
+  if (DB_URL) { try { await fetch(DB_URL + "/crm.json", {method: "PATCH", body: JSON.stringify(D)}); } catch (e) {} }
   render();
 }
 function nextBday(b) {
@@ -158,7 +159,8 @@ function tg(id, mk, d) {
 }
 function tm(k) { const o = OP[k] === undefined ? k === monthKey() : OP[k]; OP[k] = !o; render(); }
 function ns() { D.news = {on: $("#non").checked, hour: Number($("#nh").value), topics: $("#ntp").value.trim()}; save(); }
-function navTo(k) { tab = k; render(); }
+async function ldDg() { if (!DB_URL) return; try { DG = await (await fetch(DB_URL + "/crm/digest.json")).json(); render(); } catch (e) {} }
+function navTo(k) { tab = k; render(); if (k === "n") ldDg(); }
 function render() {
   norm();
   $("#ti").textContent = {p: "Persoane", b: "Zile de naștere", r: "Memento-uri", n: "Știri"}[tab];
@@ -185,7 +187,12 @@ function render() {
       <div style="display:flex;justify-content:space-between;align-items:center"><b>Rezumat zilnic de știri</b><input type="checkbox" id="non" ${nw.on ? "checked" : ""} onchange="ns()"></div>
       <label>Ora notificării</label><select id="nh" onchange="ns()">${hrs.map(x => `<option value="${x}" ${x === nw.hour ? "selected" : ""}>${x}:00</option>`).join("")}</select>
       <label>Subiecte, separate prin virgulă (gol = principalele știri)</label><input type="text" id="ntp" value="${esc(nw.topics)}" placeholder="Ex: tehnologie, bursă, fotbal" onchange="ns()">
-      <small style="color:var(--mute);margin-top:6px">Primești zilnic o notificare cu știrile, la ora aleasă.</small></div>`;
+      <small style="color:var(--mute);margin-top:6px">La ora aleasă primești o notificare, iar știrile apar aici.</small></div>`;
+    if (DG && DG.items) {
+      h += `<div class="sec">Știrile din ${esc(DG.date)}</div>`;
+      if (DG.summary) h += `<div class="card"><div class="b" style="white-space:pre-line">${esc(DG.summary)}</div></div>`;
+      h += arr(DG.items).map(i => `<${/^https?:/.test(i.link || "") ? 'a href="' + esc(i.link) + '" target="_blank" rel="noopener"' : "div"} class="card" style="text-decoration:none;color:inherit"><div class="b"><small>${esc(i.t)}</small><b>${esc(i.title)}</b></div></${/^https?:/.test(i.link || "") ? "a" : "div"}>`).join("");
+    }
   } else {
     const cur = monthKey(), td = new Date().getDate(), ml = [];
     for (let o = 0; o < 40; o++) { const k = monthKey(o); if (o >= 12 && k > "2027-12") break; ml.push(k); }
