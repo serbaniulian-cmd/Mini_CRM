@@ -18,8 +18,10 @@ jobs:
           EVENT: ${{ github.event_name }}
         run: |
           python3 - <<'PY'
-          import os, json, datetime as d
+          import os, json, time, datetime as d
           import urllib.request as u
+          import urllib.parse as up
+          import xml.etree.ElementTree as ET
           from zoneinfo import ZoneInfo
           now = d.datetime.now(ZoneInfo("Europe/Bucharest"))
           t = now.date()
@@ -28,40 +30,87 @@ jobs:
           if not manual and not 8 <= now.hour <= 21:
               print("in afara intervalului 08-22")
               raise SystemExit
-          j = json.load(u.urlopen(os.environ["DB_URL"] + "/crm.json")) or {}
-          m = []
-          if now.hour == 8:
-              for p in j.get("people", []):
+          DB = os.environ["DB_URL"]
+          NT = "https://ntfy.sh/" + os.environ["NTFY_TOPIC"]
+          APP = os.environ.get("APP_URL", "https://serbaniulian-cmd.github.io/Mini_CRM/")
+          now_ms = int(time.time() * 1000)
+
+          def get(url, timeout=25):
+              return u.urlopen(u.Request(url, headers={"User-Agent": "Mozilla/5.0"}), timeout=timeout).read()
+
+          def push(body, title="Mini-CRM", click=None):
+              h = {"Title": title}
+              if click:
+                  h["Click"] = click
+              u.urlopen(u.Request(NT, body.encode("utf-8"), h))
+
+          def put(path, obj):
+              try:
+                  u.urlopen(u.Request(DB + path, json.dumps(obj).encode("utf-8"), {"Content-Type": "application/json"}, method="PUT"))
+              except Exception as e:
+                  print("eroare salvare", path, e)
+
+          def ls(v):
+              if isinstance(v, dict):
+                  return list(v.values())
+              return [x for x in (v or []) if x is not None]
+
+          j = json.loads(get(DB + "/crm.json")) or {}
+          due = []
+          for r in ls(j.get("rem")):
+              ds = ls(r.get("days")) or ([r["day"]] if r.get("day") else [])
+              dn = r.get("done") or {}
+              if isinstance(dn, str):
+                  dn = {dn: ds}
+              md = [int(x) for x in ls(dn.get(mk))]
+              sn = r.get("sn") or {}
+              for day in ds:
+                  day = int(day)
+                  if day <= t.day and day not in md and sn.get(f"{mk}:{day}", 0) <= now_ms:
+                      due.append((r["text"], day))
+
+          if manual or now.hour == 8:
+              weather = eur = ""
+              try:
+                  w = json.loads(get("https://api.open-meteo.com/v1/forecast?latitude=45.4353&longitude=28.008&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Europe%2FBucharest&forecast_days=1"))
+                  codes = {0: "senin", 1: "predominant senin", 2: "parțial noros", 3: "noros", 45: "ceață", 48: "ceață", 51: "burniță", 53: "burniță", 55: "burniță", 61: "ploaie", 63: "ploaie", 65: "ploaie puternică", 71: "ninsoare", 73: "ninsoare", 75: "ninsoare puternică", 80: "averse", 81: "averse", 82: "averse puternice", 95: "furtună", 96: "furtună", 99: "furtună"}
+                  c, dl = w["current"], w["daily"]
+                  weather = f"Galați: {round(c['temperature_2m'])}°, {codes.get(c['weather_code'], 'variabil')} (min {round(dl['temperature_2m_min'][0])}°, max {round(dl['temperature_2m_max'][0])}°, ploaie {dl['precipitation_probability_max'][0]}%)"
+              except Exception as e:
+                  print("eroare vreme", e)
+              try:
+                  for el in ET.fromstring(get("https://www.bnr.ro/nbrfxrates.xml")).iter():
+                      if el.tag.endswith("Rate") and el.get("currency") == "EUR":
+                          eur = f"1 EUR = {float(el.text):.4f} lei (BNR)"
+              except Exception as e:
+                  print("eroare curs", e)
+              bds = []
+              for p in ls(j.get("people")):
                   b = p.get("bd")
                   if not b:
                       continue
                   _, mo, da = map(int, b.split("-"))
-                  for k, w in ((0, "azi"), (1, "mâine")):
+                  for k, w2 in ((0, "azi"), (1, "mâine"), (7, "peste 7 zile, alege un cadou")):
                       x = t + d.timedelta(days=k)
                       if (x.month, x.day) == (mo, da):
-                          m.append(f"🎂 {p['name']} are ziua de naștere {w}")
-          for r in j.get("rem", []):
-              ds = r.get("days") or ([r["day"]] if r.get("day") else [])
-              if isinstance(ds, dict):
-                  ds = list(ds.values())
-              dn = r.get("done") or {}
-              if isinstance(dn, str):
-                  dn = {dn: ds}
-              md = dn.get(mk) or []
-              if isinstance(md, dict):
-                  md = list(md.values())
-              md = [int(x) for x in md if x is not None]
-              for day in ds:
-                  if day is not None and int(day) <= t.day and int(day) not in md:
-                      m.append(f"⏰ {r['text']} (ziua {day}, bifează în aplicație)")
-          if m:
-              req = u.Request("https://ntfy.sh/" + os.environ["NTFY_TOPIC"], "\n".join(m).encode("utf-8"), {"Title": "Mini-CRM"})
-              u.urlopen(req)
-          print(m or "nimic de trimis")
+                          bds.append(f"🎂 {p['name']} – {w2}")
+              msg = []
+              if weather:
+                  msg.append("☀️ " + weather)
+              if eur:
+                  msg.append("💶 " + eur)
+              msg += bds
+              msg += [f"⏰ {a} (ziua {b})" for a, b in due]
+              put("/crm/brief.json", {"date": now.strftime("%d.%m.%Y"), "weather": weather, "eur": eur})
+              if msg:
+                  push("\n".join(msg), "Buna dimineata", APP)
+              print("rezumat dimineata:", len(msg), "linii")
+          elif due:
+              push("\n".join(f"⏰ {a} (ziua {b}, bifează în aplicație)" for a, b in due), "Mini-CRM")
+              print("memento-uri:", len(due))
+
           nw = j.get("news") or {}
           if manual or (nw.get("on") and now.hour == int(nw.get("hour", 8))):
-              import xml.etree.ElementTree as ET
-              import urllib.parse as up
               tops = [x.strip() for x in str(nw.get("topics", "")).split(",") if x.strip()][:5] or [""]
               items, seen = [], set()
               for tp in tops:
@@ -70,15 +119,14 @@ jobs:
                   else:
                       url = "https://news.google.com/rss?hl=ro&gl=RO&ceid=RO:ro"
                   try:
-                      raw = u.urlopen(u.Request(url, headers={"User-Agent": "Mozilla/5.0"}), timeout=25).read()
-                      for it in ET.fromstring(raw).findall(".//item")[:4]:
+                      for it in ET.fromstring(get(url)).findall(".//item")[:4]:
                           ti = (it.findtext("title") or "").strip()
                           if ti and ti not in seen:
                               seen.add(ti)
                               items.append((tp or "Principale", ti, it.findtext("link") or ""))
                   except Exception as e:
                       print("eroare feed", tp, e)
-              body = ""
+              summary = ""
               key = os.environ.get("ANTHROPIC_API_KEY")
               if key and items:
                   try:
@@ -87,19 +135,13 @@ jobs:
                           "model": "claude-haiku-5-5", "max_tokens": 700,
                           "messages": [{"role": "user", "content": "Iată titlurile știrilor de azi. Scrie în română un rezumat scurt, 5-7 puncte, fiecare pe un rând care începe cu •, fără introducere. Folosește doar informațiile din titluri.\n\n" + txt}]
                       }).encode("utf-8"), {"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"})
-                      body = json.load(u.urlopen(req, timeout=60))["content"][0]["text"].strip()
+                      summary = json.load(u.urlopen(req, timeout=60))["content"][0]["text"].strip()
                   except Exception as e:
                       print("eroare rezumat AI", e)
               if items:
-                  dg = {"date": now.strftime("%d.%m.%Y %H:%M"), "summary": body,
-                        "items": [{"t": a, "title": b, "link": c} for a, b, c in items]}
-                  try:
-                      u.urlopen(u.Request(os.environ["DB_URL"] + "/crm/digest.json", json.dumps(dg).encode("utf-8"),
-                                          {"Content-Type": "application/json"}, method="PUT"))
-                  except Exception as e:
-                      print("eroare salvare stiri", e)
-                  u.urlopen(u.Request("https://ntfy.sh/" + os.environ["NTFY_TOPIC"], "📰 Știrile de azi sunt gata. Deschide aplicația.".encode("utf-8"),
-                                      {"Title": "Stiri de azi", "Click": os.environ.get("APP_URL", "https://serbaniulian-cmd.github.io/Mini_CRM/")}))
+                  put("/crm/digest.json", {"date": now.strftime("%d.%m.%Y %H:%M"), "summary": summary,
+                                           "items": [{"t": a, "title": b, "link": c} for a, b, c in items]})
+                  push("📰 Știrile de azi sunt gata. Deschide aplicația.", "Stiri de azi", APP)
               print("stiri:", len(items), "titluri")
           PY
       - name: Tine repo-ul activ
