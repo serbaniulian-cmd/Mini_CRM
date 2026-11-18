@@ -14,6 +14,7 @@ jobs:
         env:
           DB_URL: ${{ secrets.DB_URL }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           python3 - <<'PY'
           import os, json, datetime as d
@@ -55,6 +56,43 @@ jobs:
               req = u.Request("https://ntfy.sh/" + os.environ["NTFY_TOPIC"], "\n".join(m).encode("utf-8"), {"Title": "Mini-CRM"})
               u.urlopen(req)
           print(m or "nimic de trimis")
+          nw = j.get("news") or {}
+          if nw.get("on") and now.hour == int(nw.get("hour", 8)):
+              import xml.etree.ElementTree as ET
+              import urllib.parse as up
+              tops = [x.strip() for x in str(nw.get("topics", "")).split(",") if x.strip()][:5] or [""]
+              items, seen = [], set()
+              for tp in tops:
+                  if tp:
+                      url = "https://news.google.com/rss/search?q=" + up.quote(tp + " when:1d") + "&hl=ro&gl=RO&ceid=RO:ro"
+                  else:
+                      url = "https://news.google.com/rss?hl=ro&gl=RO&ceid=RO:ro"
+                  try:
+                      raw = u.urlopen(u.Request(url, headers={"User-Agent": "Mozilla/5.0"}), timeout=25).read()
+                      for it in ET.fromstring(raw).findall(".//item")[:4]:
+                          ti = (it.findtext("title") or "").strip()
+                          if ti and ti not in seen:
+                              seen.add(ti)
+                              items.append((tp or "Principale", ti))
+                  except Exception as e:
+                      print("eroare feed", tp, e)
+              body = ""
+              key = os.environ.get("ANTHROPIC_API_KEY")
+              if key and items:
+                  try:
+                      txt = "\n".join(f"[{a}] {b}" for a, b in items)
+                      req = u.Request("https://api.anthropic.com/v1/messages", json.dumps({
+                          "model": "claude-haiku-5-5", "max_tokens": 700,
+                          "messages": [{"role": "user", "content": "Iată titlurile știrilor de azi. Scrie în română un rezumat scurt, 5-7 puncte, fiecare pe un rând care începe cu •, fără introducere. Folosește doar informațiile din titluri.\n\n" + txt}]
+                      }).encode("utf-8"), {"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"})
+                      body = json.load(u.urlopen(req, timeout=60))["content"][0]["text"].strip()
+                  except Exception as e:
+                      print("eroare rezumat AI", e)
+              if not body and items:
+                  body = "\n".join(f"• {b}" for a, b in items)
+              if body:
+                  u.urlopen(u.Request("https://ntfy.sh/" + os.environ["NTFY_TOPIC"], body[:3500].encode("utf-8"), {"Title": "Stiri de azi"}))
+              print("stiri:", len(items), "titluri")
           PY
       - name: Tine repo-ul activ
         run: |
