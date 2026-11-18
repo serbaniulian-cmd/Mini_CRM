@@ -34,6 +34,7 @@ h1{font-size:28px;font-weight:800;letter-spacing:-.5px;margin:6px 4px 16px}
 .nf label{font-size:11px;font-weight:700;color:var(--mute);margin-top:8px}
 .nf select,.nf input[type=text]{width:100%;font-size:16px;font-family:inherit;padding:11px 12px;border-radius:14px;border:1px solid rgba(0,0,0,.12);background:rgba(255,255,255,.8);color:var(--ink)}
 .nf input[type=checkbox]{width:26px;height:26px;accent-color:#2c2c2e}
+.sz{border:1px solid #fff;background:rgba(255,255,255,.6);border-radius:99px;padding:6px 10px;font-size:12px;font-weight:800;color:var(--ink);font-family:inherit}
 .mh{display:flex;justify-content:space-between;align-items:center;cursor:pointer;margin-top:14px}
 .sec{font-size:12px;font-weight:800;color:var(--mute);text-transform:uppercase;letter-spacing:.7px;margin:20px 6px 8px}
 .ck.on{background:var(--gain);border-color:var(--gain)}
@@ -100,7 +101,7 @@ button{font-family:inherit;transition:transform .15s,background .15s}button:acti
 <script>
 // Lipește aici URL-ul Firebase Realtime Database (fără / la final)
 const DB_URL = "https://minicrm-b3a88-default-rtdb.europe-west1.firebasedatabase.app";
-let D = {people: [], rem: [], news: null}, tab = "p", stip = "p", OP = {}, DG = null;
+let D = {people: [], rem: [], news: null}, tab = "a", stip = "p", OP = {}, DG = null, BR = null;
 const $ = s => document.querySelector(s);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 const esc = s => String(s || "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
@@ -108,6 +109,7 @@ const ini = n => n.trim().split(/\s+/).slice(0, 2).map(w => w[0]).join("").toUpp
 const IC = {
   p: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
   b: '<path d="M20 12v9H4v-9M2 7h20v5H2zM12 21V7M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7z"/>',
+  a: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   n: '<path d="M4 4h13v16H5a1 1 0 0 1-1-1zM17 8h3v11a1 1 0 0 1-1 1M8 8h5M8 12h5M8 16h5"/>',
   r: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/>'
 };
@@ -116,7 +118,7 @@ async function load() {
   if (DB_URL) {
     try {
       const j = await (await fetch(DB_URL + "/crm.json")).json();
-      DG = j && j.digest || null;
+      DG = j && j.digest || null; BR = j && j.brief || null;
       if (j && (j.people || j.rem || j.news)) D = {people: j.people || [], rem: j.rem || [], news: j.news};
       else if (D.people.length || D.rem.length) { await save(); return; }
     } catch (e) {}
@@ -147,6 +149,7 @@ function norm() {
   D.rem.forEach(r => {
     r.days = arr(r.days).map(Number); if (!r.days.length && r.day) r.days = [Number(r.day)]; delete r.day;
     if (typeof r.done === "string") { const k = r.done; r.done = {}; r.done[k] = [...r.days]; }
+    r.sn = r.sn || {}; Object.keys(r.sn).forEach(k => { if (r.sn[k] < Date.now() - 864e5) delete r.sn[k]; });
     r.done = r.done || {}; Object.keys(r.done).forEach(k => { if (k < monthKey()) delete r.done[k]; else r.done[k] = arr(r.done[k]).map(Number); });
   });
 }
@@ -159,16 +162,42 @@ function tg(id, mk, d) {
 }
 function tm(k) { const o = OP[k] === undefined ? k === monthKey() : OP[k]; OP[k] = !o; render(); }
 function ns() { D.news = {on: $("#non").checked, hour: Number($("#nh").value), topics: $("#ntp").value.trim()}; save(); }
+const newsCard = i => { const ok = /^https?:/.test(i.link || ""), tg2 = ok ? 'a href="' + esc(i.link) + '" target="_blank" rel="noopener"' : "div";
+  return `<${tg2} class="card" style="text-decoration:none;color:inherit"><div class="b"><small>${esc(i.t)}</small><b>${esc(i.title)}</b></div></${ok ? "a" : "div"}>`; };
+function itemHtml(r, mk, d) {
+  const cur = monthKey(), td = new Date().getDate(), dn = (r.done[mk] || []).includes(d), ro = mk > cur;
+  const sn = r.sn[mk + ":" + d] || 0, snz = sn > Date.now(), due = !dn && mk === cur && td >= d;
+  const hh = new Date(sn).toLocaleTimeString("ro-RO", {hour: "2-digit", minute: "2-digit"}) + (new Date(sn).getDate() !== new Date().getDate() ? " (mâine)" : "");
+  const st = dn ? "făcut" : mk > cur ? "urmează" : due ? (snz ? "amânat până la " + hh : "scadent · notificări din oră în oră") : "urmează";
+  return `<div class="card${dn ? " done" : ""}"><button class="ck${dn ? " on" : ""}" ${ro ? "disabled" : ""} onclick="tg('${r.id}','${mk}',${d})" aria-label="Bifează">${dn ? "✓" : ""}</button>
+    <div class="b"><b>${esc(r.text)}</b><small>ziua ${d} · ${st}</small></div>${due ? `<div class="acts"><button class="sz" onclick="sz('${r.id}','${mk}',${d},1)">1h</button><button class="sz" onclick="sz('${r.id}','${mk}',${d},24)">Mâine</button></div>` : ""}</div>`;
+}
+function sz(id, mk, d, m) {
+  const o = D.rem.find(x => x.id === id); if (!o) return;
+  let t = Date.now() + 36e5; if (m === 24) { const x = new Date(); x.setDate(x.getDate() + 1); x.setHours(8, 0, 0, 0); t = x.getTime(); }
+  o.sn[mk + ":" + d] = t; save();
+}
+function azi() {
+  const cur = monthKey(), td = new Date().getDate(); let h = "";
+  if (BR && (BR.weather || BR.eur)) h += `<div class="card" style="flex-direction:column;align-items:stretch;gap:4px"><small>Dimineața, ${esc(BR.date)}</small>${BR.weather ? "<b>" + esc(BR.weather) + "</b>" : ""}${BR.eur ? "<span>" + esc(BR.eur) + "</span>" : ""}</div>`;
+  const due = []; D.rem.forEach(r => r.days.forEach(d => { if (d <= td && !(r.done[cur] || []).includes(d)) due.push({r, d}); })); due.sort((a, b) => a.d - b.d);
+  h += '<div class="sec">De făcut</div>' + (due.length ? due.map(({r, d}) => itemHtml(r, cur, d)).join("") : '<div class="empty" style="padding:14px 0">Nimic scadent azi 🎉</div>');
+  const bd = D.people.filter(p => p.bd).map(p => ({p, ...nextBday(p.bd)})).filter(x => x.days <= 7).sort((a, b) => a.days - b.days);
+  if (bd.length) h += '<div class="sec">Zile de naștere</div>' + bd.map(({p, days, age}) => `<div class="card"><div class="av">${esc(ini(p.name))}</div><div class="b"><b>${esc(p.name)}</b><small>împlinește ${age} ani</small></div><span class="pill">${when(days)}</span></div>`).join("");
+  if (DG && DG.items) h += '<div class="sec">Știri</div>' + (DG.summary ? `<div class="card"><div class="b" style="white-space:pre-line">${esc(DG.summary)}</div></div>` : arr(DG.items).slice(0, 3).map(newsCard).join(""));
+  return h;
+}
 async function ldDg() { if (!DB_URL) return; try { DG = await (await fetch(DB_URL + "/crm/digest.json")).json(); render(); } catch (e) {} }
 function navTo(k) { tab = k; render(); if (k === "n") ldDg(); }
 function render() {
   norm();
-  $("#ti").textContent = {p: "Persoane", b: "Zile de naștere", r: "Memento-uri", n: "Știri"}[tab];
-  $("#nav").innerHTML = [["p", "Persoane"], ["b", "Zile"], ["r", "Memento"], ["n", "Știri"]]
+  $("#ti").textContent = {a: "Azi", p: "Persoane", b: "Zile de naștere", r: "Memento-uri", n: "Știri"}[tab];
+  $("#nav").innerHTML = [["a", "Azi"], ["p", "Persoane"], ["b", "Zile"], ["r", "Memento"], ["n", "Știri"]]
     .map(([k, l]) => `<button class="${tab === k ? "on" : ""}" onclick="navTo('${k}')"><svg viewBox="0 0 24 24">${IC[k]}</svg>${l}</button>`).join("");
   $("#fab").style.display = tab === "n" ? "none" : "";
   let h = "";
-  if (tab === "p") {
+  if (tab === "a") { h = azi(); }
+  else if (tab === "p") {
     h = [...D.people].sort((a, b) => a.name.localeCompare(b.name)).map(p => `<div class="card"><div class="av">${esc(ini(p.name))}</div>
       <div class="b"><b>${esc(p.name)}</b><small>${esc(p.rel)}${p.nt ? " · " + esc(p.nt) : ""}</small>${p.ph ? `<small><a href="tel:${esc(p.ph)}">${esc(p.ph)}</a></small>` : ""}</div>
       ${acts('people',p.id)}</div>`).join("");
@@ -191,7 +220,7 @@ function render() {
     if (DG && DG.items) {
       h += `<div class="sec">Știrile din ${esc(DG.date)}</div>`;
       if (DG.summary) h += `<div class="card"><div class="b" style="white-space:pre-line">${esc(DG.summary)}</div></div>`;
-      h += arr(DG.items).map(i => `<${/^https?:/.test(i.link || "") ? 'a href="' + esc(i.link) + '" target="_blank" rel="noopener"' : "div"} class="card" style="text-decoration:none;color:inherit"><div class="b"><small>${esc(i.t)}</small><b>${esc(i.title)}</b></div></${/^https?:/.test(i.link || "") ? "a" : "div"}>`).join("");
+      h += arr(DG.items).map(newsCard).join("");
     }
   } else {
     const cur = monthKey(), td = new Date().getDate(), ml = [];
@@ -202,10 +231,7 @@ function render() {
       const it = []; D.rem.forEach(r => r.days.forEach(d => it.push({r, d}))); it.sort((a, b) => a.d - b.d);
       const nd = it.filter(({r, d}) => (r.done[mk] || []).includes(d)).length, op = OP[mk] === undefined ? mk === cur : OP[mk];
       h += `<div class="sec mh" onclick="tm('${mk}')"><span>${mLabel(mk)}</span><span>${nd}/${it.length} ${op ? "▾" : "▸"}</span></div>`;
-      if (op) h += it.map(({r, d}) => { const dn = (r.done[mk] || []).includes(d), ro = mk > cur;
-        const st = dn ? "făcut" : mk > cur ? "urmează" : td >= d ? "scadent · notificări din oră în oră" : "urmează";
-        return `<div class="card${dn ? " done" : ""}"><button class="ck${dn ? " on" : ""}" ${ro ? "disabled" : ""} onclick="tg('${r.id}','${mk}',${d})" aria-label="Bifează">${dn ? "✓" : ""}</button>
-        <div class="b"><b>${esc(r.text)}</b><small>ziua ${d} · ${st}</small></div></div>`; }).join("");
+      if (op) h += it.map(({r, d}) => itemHtml(r, mk, d)).join("");
     });
   }
   if (tab === "r" && !D.rem.length) h = "";
