@@ -10,12 +10,15 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      - name: Instaleaza pywebpush
+        run: pip install --quiet pywebpush
       - name: Trimite notificari
         env:
           DB_URL: ${{ secrets.DB_URL }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           EVENT: ${{ github.event_name }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
         run: |
           python3 - <<'PY'
           import os, json, time, datetime as d
@@ -55,9 +58,81 @@ jobs:
                   return list(v.values())
               return [x for x in (v or []) if x is not None]
 
+          import re
+          def pushj(msg, title="Mini-CRM", actions=None, click=None):
+              body = {"topic": os.environ["NTFY_TOPIC"], "title": title, "message": msg}
+              if click:
+                  body["click"] = click
+              if actions:
+                  body["actions"] = actions
+              u.urlopen(u.Request("https://ntfy.sh", json.dumps(body).encode("utf-8"), {"Content-Type": "application/json"}))
+
+          def act(key, obj, label):
+              return {"action": "http", "label": label, "url": f"{DB}/crm/acks/{key}.json", "method": "PUT",
+                      "headers": {"Content-Type": "application/json"}, "body": json.dumps(obj), "clear": True}
+
+          def wa_url(p):
+              dg = re.sub(r"\D", "", str(p.get("ph", "")))
+              if dg.startswith("00"):
+                  dg = dg[2:]
+              elif dg.startswith("0"):
+                  dg = "40" + dg[1:]
+              first = str(p["name"]).split()[0]
+              return "https://wa.me/" + dg + "?text=" + up.quote(f"La mulți ani, {first}! 🎉 Îți doresc multă sănătate și o zi minunată!")
+
           j = json.loads(get(DB + "/crm.json")) or {}
+          acks = j.get("acks") or {}
+          import unicodedata
+          subs = [(k, v) for k, v in (j.get("push") or {}).items() if isinstance(v, dict) and v.get("endpoint")]
+          VP = os.environ.get("VAPID_PRIVATE_KEY", "").strip()
+          _vv = None
+          dead = set()
+
+          def wpush(title, body, url, tag):
+              global _vv
+              if not subs or not VP:
+                  return 0
+              try:
+                  from pywebpush import webpush, WebPushException
+                  from py_vapid import Vapid
+                  if _vv is None:
+                      _vv = Vapid.from_string(VP)
+              except Exception as e:
+                  print("pywebpush indisponibil:", e)
+                  return 0
+              cnt = 0
+              for k, sb in subs:
+                  if k in dead:
+                      continue
+                  try:
+                      webpush(subscription_info=sb, data=json.dumps({"title": title, "body": body, "url": url, "tag": tag}), vapid_private_key=_vv, vapid_claims={"sub": APP}, ttl=43200)
+                      cnt += 1
+                  except WebPushException as e:
+                      code = getattr(getattr(e, "response", None), "status_code", None)
+                      print("eroare push", k, code, str(e)[:150])
+                      if code in (404, 410):
+                          dead.add(k)
+                          try:
+                              u.urlopen(u.Request(f"{DB}/crm/push/{k}.json", method="DELETE"))
+                          except Exception:
+                              pass
+                  except Exception as e:
+                      print("eroare push", k, e)
+              return cnt
+
+          def send(title, msg, url="", tag=None, actions=None):
+              if wpush(title, msg, url, tag):
+                  return
+              nt = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode()
+              if actions:
+                  pushj(msg, nt, actions, url or None)
+              else:
+                  push(msg, nt, url or None)
+
+          tom8 = int((now.replace(hour=8, minute=0, second=0, microsecond=0) + d.timedelta(days=1)).timestamp() * 1000)
           due = []
           for r in ls(j.get("rem")):
+              rid = str(r.get("id", ""))
               ds = ls(r.get("days")) or ([r["day"]] if r.get("day") else [])
               dn = r.get("done") or {}
               if isinstance(dn, str):
@@ -66,15 +141,39 @@ jobs:
               sn = r.get("sn") or {}
               for day in ds:
                   day = int(day)
-                  if day <= t.day and day not in md and sn.get(f"{mk}:{day}", 0) <= now_ms:
-                      due.append((r["text"], day))
+                  ak = acks.get(f"{rid}_{mk}_{day}") or {}
+                  if ak.get("t") == "done" or day in md:
+                      continue
+                  until = max(int(sn.get(f"{mk}:{day}", 0) or 0), int(ak.get("u", 0) or 0) if ak.get("t") == "sn" else 0)
+                  if day <= t.day and until <= now_ms:
+                      due.append((r["text"], day, rid))
+
+          ann_items, ann_soon = [], []
+          for an in ls(j.get("ann")):
+              aid = str(an.get("id", ""))
+              ak = acks.get(f"ann_{aid}") or {}
+              try:
+                  dd = (d.date.fromisoformat(an["date"]) - t).days
+              except Exception:
+                  continue
+              if int(an.get("sn", 0) or 0) > now_ms:
+                  continue
+              if ak.get("t") == "adone" or (ak.get("t") == "sn" and int(ak.get("u", 0) or 0) > now_ms):
+                  continue
+              if dd <= 0:
+                  ann_items.append((f"🗓 {an['text']} – scadent " + (f"de {-dd} zile" if dd < 0 else "azi"), f"ann_{aid}", "adone"))
+              elif dd in (30, 7, 1):
+                  ann_soon.append(f"🗓 {an['text']} – peste {dd} " + ("zi" if dd == 1 else "zile"))
+          items = [(f"⏰ {a} (ziua {b})", f"{c}_{mk}_{b}", "done") for a, b, c in due] + ann_items
 
           if manual or now.hour == 8:
               weather = eur = ""
+              wd, eurv = {}, None
               try:
                   w = json.loads(get("https://api.open-meteo.com/v1/forecast?latitude=45.4353&longitude=28.008&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Europe%2FBucharest&forecast_days=1"))
                   codes = {0: "senin", 1: "predominant senin", 2: "parțial noros", 3: "noros", 45: "ceață", 48: "ceață", 51: "burniță", 53: "burniță", 55: "burniță", 61: "ploaie", 63: "ploaie", 65: "ploaie puternică", 71: "ninsoare", 73: "ninsoare", 75: "ninsoare puternică", 80: "averse", 81: "averse", 82: "averse puternice", 95: "furtună", 96: "furtună", 99: "furtună"}
                   c, dl = w["current"], w["daily"]
+                  wd = {"t": round(c["temperature_2m"]), "c": codes.get(c["weather_code"], "variabil"), "mn": round(dl["temperature_2m_min"][0]), "mx": round(dl["temperature_2m_max"][0]), "rn": dl["precipitation_probability_max"][0]}
                   weather = f"Galați: {round(c['temperature_2m'])}°, {codes.get(c['weather_code'], 'variabil')} (min {round(dl['temperature_2m_min'][0])}°, max {round(dl['temperature_2m_max'][0])}°, ploaie {dl['precipitation_probability_max'][0]}%)"
               except Exception as e:
                   print("eroare vreme", e)
@@ -82,9 +181,10 @@ jobs:
                   for el in ET.fromstring(get("https://www.bnr.ro/nbrfxrates.xml")).iter():
                       if el.tag.endswith("Rate") and el.get("currency") == "EUR":
                           eur = f"1 EUR = {float(el.text):.4f} lei (BNR)"
+                          eurv = float(el.text)
               except Exception as e:
                   print("eroare curs", e)
-              bds = []
+              bds, wa = [], []
               for p in ls(j.get("people")):
                   b = p.get("bd")
                   if not b:
@@ -94,20 +194,31 @@ jobs:
                       x = t + d.timedelta(days=k)
                       if (x.month, x.day) == (mo, da):
                           bds.append(f"🎂 {p['name']} – {w2}")
+                          if k == 0 and p.get("ph"):
+                              wa.append(p)
               msg = []
               if weather:
                   msg.append("☀️ " + weather)
               if eur:
                   msg.append("💶 " + eur)
               msg += bds
-              msg += [f"⏰ {a} (ziua {b})" for a, b in due]
-              put("/crm/brief.json", {"date": now.strftime("%d.%m.%Y"), "weather": weather, "eur": eur})
+              msg += ann_soon
+              if items:
+                  msg.append(f"⏰ {len(items)} scadente – îți trimit butoanele mai jos")
+              put("/crm/brief.json", {"date": now.strftime("%d.%m.%Y"), "weather": weather, "eur": eur, **wd, "e": eurv})
               if msg:
-                  push("\n".join(msg), "Buna dimineata", APP)
-              print("rezumat dimineata:", len(msg), "linii")
-          elif due:
-              push("\n".join(f"⏰ {a} (ziua {b}, bifează în aplicație)" for a, b in due), "Mini-CRM")
-              print("memento-uri:", len(due))
+                  send("Bună dimineața", "\n".join(msg), APP + "#a", "brief")
+              for p in wa:
+                  send("Zi de naștere", f"🎂 {p['name']} are ziua de naștere azi", APP + "#w=" + str(p.get("id", "")), "bd" + str(p.get("id", "")), [{"action": "view", "label": "Trimite urare", "url": wa_url(p)}])
+              print("rezumat dimineata:", len(msg), "linii,", len(wa), "urari")
+
+          if items:
+              if len(items) <= 5:
+                  for txt, key, kind in items:
+                      send("Memento", txt, APP + ("#y=" + key[4:] if key.startswith("ann_") else "#m=" + key), key, [act(key, {"t": kind}, "Gata"), act(key, {"t": "sn", "u": now_ms + 110 * 60000}, "Amână 2h"), act(key, {"t": "sn", "u": tom8}, "Mâine")])
+              else:
+                  send("Mini-CRM", "\n".join(x[0] for x in items), APP + "#r", "multi")
+              print("memento-uri:", len(items))
 
           nw = j.get("news") or {}
           if manual or (nw.get("on") and now.hour == int(nw.get("hour", 8))):
@@ -141,7 +252,7 @@ jobs:
               if items:
                   put("/crm/digest.json", {"date": now.strftime("%d.%m.%Y %H:%M"), "summary": summary,
                                            "items": [{"t": a, "title": b, "link": c} for a, b, c in items]})
-                  push("📰 Știrile de azi sunt gata. Deschide aplicația.", "Stiri de azi", APP)
+                  send("Știri de azi", "📰 Știrile de azi sunt gata.", APP + "#n", "news")
               print("stiri:", len(items), "titluri")
           PY
       - name: Tine repo-ul activ
