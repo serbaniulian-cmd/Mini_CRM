@@ -87,10 +87,20 @@ jobs:
           VP = os.environ.get("VAPID_PRIVATE_KEY", "").strip()
           _vv = None
           dead = set()
+          DIAG = []
+          PUSHED = [0]
+
+          def diag(x):
+              if x not in DIAG:
+                  DIAG.append(x)
           print("push: abonamente =", len(subs), "| cheie VAPID =", "da" if VP else "NU")
 
           def wpush(title, body, url, tag):
               global _vv
+              if not subs:
+                  diag("Telefonul NU e înregistrat (abonamente = 0). În aplicație: rotița → Notificări → Activează.")
+              if not VP:
+                  diag("Secretul VAPID_PRIVATE_KEY lipsește sau e gol în GitHub.")
               if not subs or not VP:
                   return 0
               try:
@@ -100,6 +110,7 @@ jobs:
                       _vv = Vapid.from_string(VP)
               except Exception as e:
                   print("pywebpush indisponibil:", e)
+                  diag("pywebpush/cheie: " + str(e)[:120])
                   return 0
               cnt = 0
               for k, sb in subs:
@@ -109,9 +120,11 @@ jobs:
                       resp = webpush(subscription_info=sb, data=json.dumps({"title": title, "body": body, "url": url, "tag": tag}), vapid_private_key=_vv, vapid_claims={"sub": APP}, ttl=43200)
                       cnt += 1
                       print("push trimis", k, getattr(resp, "status_code", ""))
+                      PUSHED[0] += 1
                   except WebPushException as e:
                       code = getattr(getattr(e, "response", None), "status_code", None)
                       print("eroare push", k, code, str(e)[:150])
+                      diag(f"Apple/serviciul push a răspuns {code}: {str(e)[:100]}")
                       if code in (404, 410):
                           dead.add(k)
                           try:
@@ -120,6 +133,7 @@ jobs:
                               pass
                   except Exception as e:
                       print("eroare push", k, e)
+                      diag("eroare trimitere: " + str(e)[:120])
               return cnt
 
           def send(title, msg, url="", tag=None, actions=None):
@@ -257,6 +271,14 @@ jobs:
                                            "items": [{"t": a, "title": b, "link": c} for a, b, c in items]})
                   send("Știri de azi", "📰 Știrile de azi sunt gata.", APP + "#n", "news")
               print("stiri:", len(items), "titluri")
+          if manual:
+              try:
+                  if PUSHED[0]:
+                      push(f"Notificările push directe au fost trimise la {PUSHED[0]} mesaje. Dacă nu le vezi, verifică Setări iPhone → Notificări → Mini-CRM.", "Diagnostic push")
+                  else:
+                      push("Push direct NU a mers:\n" + "\n".join(DIAG or ["motiv necunoscut, vezi jurnalul"]), "Diagnostic push")
+              except Exception as e:
+                  print("diagnostic esuat", e)
           PY
       - name: Tine repo-ul activ
         run: |
