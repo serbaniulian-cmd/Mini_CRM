@@ -388,7 +388,7 @@ async function pushOn() {
   } catch (e) { alert("Nu am putut activa notificările: " + e.message); }
 }
 async function pushTest() {
-  try { const reg = await navigator.serviceWorker.ready; await reg.showNotification("Mini-CRM", {body: "Notificările funcționează ✓", icon: "icon-192.png", tag: "test"}); } catch (e) { alert("Test eșuat: " + e.message); }
+  try { const reg = await navigator.serviceWorker.ready; await reg.showNotification("Test notificare", {body: "Notificările funcționează ✓", icon: "icon-192.png", tag: "test"}); } catch (e) { alert("Test eșuat: " + e.message); }
 }
 async function pushSync() {
   try { if (pushOk() && Notification.permission === "granted") { const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription(); if (sub) await pushSave(sub); } } catch (e) {}
