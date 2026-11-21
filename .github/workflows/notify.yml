@@ -86,6 +86,7 @@ jobs:
           subs = [(k, v) for k, v in (j.get("push") or {}).items() if isinstance(v, dict) and v.get("endpoint")]
           VP = os.environ.get("VAPID_PRIVATE_KEY", "").strip()
           _vv = None
+          SUB = os.environ.get("VAPID_SUB", "mailto:serbaniulian-cmd@users.noreply.github.com")
           dead = set()
           DIAG = []
           PUSHED = [0]
@@ -117,7 +118,7 @@ jobs:
                   if k in dead:
                       continue
                   try:
-                      resp = webpush(subscription_info=sb, data=json.dumps({"title": title, "body": body, "url": url, "tag": tag}), vapid_private_key=_vv, vapid_claims={"sub": APP}, ttl=43200)
+                      resp = webpush(subscription_info=sb, data=json.dumps({"title": title, "body": body, "url": url, "tag": tag}), vapid_private_key=_vv, vapid_claims={"sub": SUB}, ttl=43200)
                       cnt += 1
                       print("push trimis", k, getattr(resp, "status_code", ""))
                       PUSHED[0] += 1
