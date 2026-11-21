@@ -580,6 +580,7 @@ function azi() {
   return h + glCard();
 }
 async function ldDg() { if (!DB_URL) return; try { DG = await (await fetch(DB_URL + "/crm/digest.json")).json(); render(); } catch (e) {} }
+function delBd(id) { const p = D.people.find(x => x.id === id); if (!p) return; if (confirm("Ștergi ziua de naștere a lui " + p.name + "? Persoana rămâne în lista de persoane.")) { p.bd = ""; save(); } }
 function navTo(k) { tab = k; ANIM = true; try { window.scrollTo(0, 0); } catch (e) {} render(); if (k === "n") ldDg(); }
 function render() {
   norm(); const an = ANIM; ANIM = false;
@@ -602,9 +603,9 @@ function render() {
     if (l.length) {
       const f = l[0], off = (163.4 * Math.min(f.days, 365) / 365).toFixed(1);
       h = `<div class="card" style="padding:16px"><div class="inel"><svg viewBox="0 0 64 64"><circle class="bg" cx="32" cy="32" r="26"/><circle class="arc" cx="32" cy="32" r="26" style="stroke-dashoffset:${off}"/></svg><b>${f.days}<small>zile</small></b></div>
-        <div class="b"><small>Următoarea</small><b style="font-size:19px">${esc(f.p.name)}</b><small>împlinește ${f.age} ani · ${when(f.days)}</small></div><button class="x" onclick="edit('people','${f.p.id}')">✎</button></div>`;
+        <div class="b"><small>Următoarea</small><b style="font-size:19px">${esc(f.p.name)}</b><small>împlinește ${f.age} ani · ${when(f.days)}</small></div><div class="acts"><button class="x" onclick="edit('people','${f.p.id}')">✎</button><button class="x" onclick="delBd('${f.p.id}')">×</button></div></div>`;
       h += l.slice(1).map(({p, days, age}) => `<div class="card"><div class="av">${esc(ini(p.name))}</div>
-        <div class="b"><b>${esc(p.name)}</b><small>împlinește ${age} ani</small></div><span class="pill">${when(days)}</span><button class="x" onclick="edit('people','${p.id}')">✎</button></div>`).join("");
+        <div class="b"><b>${esc(p.name)}</b><small>împlinește ${age} ani</small></div><span class="pill">${when(days)}</span><div class="acts"><button class="x" onclick="edit('people','${p.id}')">✎</button><button class="x" onclick="delBd('${p.id}')">×</button></div></div>`).join("");
     }
   } else if (tab === "n") {
     const nw = D.news, hrs = Array.from({length: 14}, (_, i) => i + 8);
